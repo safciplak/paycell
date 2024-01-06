@@ -50,6 +50,34 @@ func (rr SellRequest) Validate(r *http.Request) error {
 	)
 }
 
+type RefundRequest struct {
+	PhoneNumber         string `json:"phone_number"`
+	Amount              string `json:"amount"`
+	Currency            string `json:"currency"`
+	OriginalReferenceNO string `json:"original_reference_no"`
+}
+
+func (rr RefundRequest) Validate(r *http.Request) error {
+	return validation.ValidateStruct(&rr,
+		validation.Field(&rr.PhoneNumber, validation.Required),
+		validation.Field(&rr.Amount, validation.Required),
+		validation.Field(&rr.Currency, validation.Required),
+		validation.Field(&rr.OriginalReferenceNO, validation.Required),
+	)
+}
+
+type CancelRequest struct {
+	PhoneNumber         string `json:"phone_number"`
+	OriginalReferenceNO string `json:"original_reference_no"`
+}
+
+func (rr CancelRequest) Validate(r *http.Request) error {
+	return validation.ValidateStruct(&rr,
+		validation.Field(&rr.PhoneNumber, validation.Required),
+		validation.Field(&rr.OriginalReferenceNO, validation.Required),
+	)
+}
+
 func main() {
 	r := mux.NewRouter()
 
@@ -80,6 +108,62 @@ func main() {
 		if res, err := api.Auth(ctx, req); err == nil {
 			pretty, _ := json.MarshalIndent(res.Provision, " ", " ")
 			fmt.Println(string(pretty))
+			app.JSON(w, http.StatusOK, res)
+		} else {
+			app.InternalError(w, r, err)
+		}
+
+		w.WriteHeader(http.StatusOK)
+
+	}).Methods(http.MethodPost)
+
+	r.HandleFunc("/refund", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+		var rr RefundRequest
+		if !app.BindAndValidate(w, r, &rr) {
+			return
+		}
+
+		api, req := paycell.Api(merchant, apppass, appname)
+		api.SetStoreKey(storekey)
+		api.SetPrefix(prefix)
+		api.SetMode(envmode)
+		api.SetPhoneNumber(rr.PhoneNumber)                // Müşteri numarası (zorunlu)
+		api.SetIPAddress(app.GetRealIp(r))                // IP adresi (zorunlu)
+		api.SetAmount(rr.Amount, rr.Currency)             // İade tutarı (zorunlu)
+		req.Refund.OriginalRefNo = rr.OriginalReferenceNO // Referans numarası (zorunlu)
+
+		if res, err := api.Refund(ctx, req); err == nil {
+			pretty, _ := json.MarshalIndent(res.Refund, " ", " ")
+			fmt.Println(string(pretty))
+			app.JSON(w, http.StatusOK, res)
+		} else {
+			app.InternalError(w, r, err)
+		}
+
+		w.WriteHeader(http.StatusOK)
+
+	}).Methods(http.MethodPost)
+
+	r.HandleFunc("/cancel", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+		var cr CancelRequest
+		if !app.BindAndValidate(w, r, &cr) {
+			return
+		}
+
+		api, req := paycell.Api(merchant, apppass, appname)
+		api.SetStoreKey(storekey)
+		api.SetPrefix(prefix)
+		api.SetMode(envmode)
+		api.SetPhoneNumber(cr.PhoneNumber)                // Müşteri numarası (zorunlu)
+		api.SetIPAddress(app.GetRealIp(r))                // IP adresi (zorunlu)
+		req.Cancel.OriginalRefNo = cr.OriginalReferenceNO // Referans numarası (zorunlu)
+
+		if res, err := api.Cancel(ctx, req); err == nil {
+			pretty, _ := json.MarshalIndent(res.Refund, " ", " ")
+			fmt.Println(string(pretty))
+			app.JSON(w, http.StatusOK, res)
 		} else {
 			app.InternalError(w, r, err)
 		}
